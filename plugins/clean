@@ -1,0 +1,73 @@
+#!/usr/bin/env python
+#
+# Durian Debian Deployer
+# Originally Developed by Mohammad Razavi <mrazavi64 at gmail dot com>
+#
+
+"""\
+Clear the netboot area (the TFTP root) by removing all the deployed
+systems.  All the seeds files and the syslinux.cfg configurations will
+be deleted.
+
+If you provide a regular expression all the matching systems will be
+removed.
+"""
+
+import os, sys, re
+from optparse import OptionParser
+
+__version__ = "1.0.0"
+__minimum_durian_version__ = "1.0.0"
+__description__ = "clear netboot area by removing all the deployed systems"
+
+def remove_file(file_path):
+    try:
+        os.remove(file_path)
+    except Exception as e:
+        sys.stderr.write("{0}\n".format(e))
+
+if __name__ == "__main__":
+    parser = OptionParser()
+
+    parser.add_option("-r", "--netboot-root", dest = "netboot_root", \
+                      type = "string", default = "", \
+                      help = "Set netboot root to DIR", metavar = "DIR")
+    parser.add_option("-v", "--version", dest = "version", \
+                      action = "store_true", default = False, \
+                      help = "Print plugin version and exit")
+
+    parser.set_description(__doc__)
+    parser.set_usage("clean [-v|--version] [-h|--help] " \
+                     "[-r|--netboot-root=<dir>] [regex]")
+
+    OPTIONS, ARGS = parser.parse_args()
+
+    if OPTIONS.version:
+        sys.stdout.write("desctiption: {0}\n".format(__description__))
+        sys.stdout.write("version: {0}\n".format(__version__))
+        sys.stdout.write("minimum durian version: {0}\n" \
+                         .format(__minimum_durian_version__))
+        exit(0)
+
+    if len(ARGS) > 1:
+        sys.stderr.write("Invalid number of arguments.\n")
+        exit(1)
+
+    regex = re.compile(ARGS[0] if ARGS else ".*")
+
+    netboot_root = OPTIONS.netboot_root or os.environ.get("NETBOOT_ROOT")
+    if not netboot_root:
+        sys.stderr.write("netboot root is not set.\n")
+        exit(1)
+
+    path = os.path.join(netboot_root, "pxelinux.cfg")
+    for filename in os.listdir(path):
+        if filename != "default" and regex.match(filename):
+            file_path = os.path.join(path, filename)
+            remove_file(file_path)
+
+    path = os.path.join(netboot_root, "seeds")
+    for filename in os.listdir(path):
+        if filename.endswith(".seed") and regex.match(filename[:-5]):
+            file_path = os.path.join(path, filename)
+            remove_file(file_path)

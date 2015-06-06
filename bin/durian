@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -a
+. /etc/default/durian
+if [ -d /etc/durian/conf.d ]; then
+    for conf in /etc/durian/conf.d/*.conf; do
+	[ -f $conf ] && . $conf
+    done
+fi
+set +a
+
+/usr/share/durian/durian.py $@

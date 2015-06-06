@@ -1,0 +1,230 @@
+#!/usr/bin/env python
+#
+# Durian Debian Deployer
+# Originally Developed by Mohammad Razavi <mrazavi64 at gmail dot com>
+#
+
+"""\
+Given a definition name, creates a libvirt virtual machine.
+"""
+
+import os, sys, re, subprocess
+from optparse import OptionParser
+
+import libvirt
+
+from durian.DurianManager import Durian
+
+__version__ = "1.0.0"
+__minimum_durian_version__ = "1.0.0"
+__description__ = "manage libvirt virtual machines"
+
+def virt_install(*args):
+    virt_install_exe = os.environ.get("VIRT_INSTALL_EXE") or "virt-install"
+    retcode = subprocess.call((virt_install_exe,) + args)
+    return retcode
+
+def dump_definition(definition_name):
+    retcode, stdout, stderr = Durian().call("dump", "definition", \
+                                            definition_name)
+    if retcode != 0:
+        sys.stderr.write("Coudn't retrieve the contents of '{0}'\n" \
+                         .format(definition_name))
+        exit(1)
+
+    return stdout
+
+def get_definition(definition_name):
+    definition_content = sys.stdin.read() if definition_name == "-" else \
+                         dump_definition(definition_name)
+
+    result = []
+    parts = []
+    for line in definition_content.split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#"): continue
+
+        parts += line.split()
+
+        if parts[-1] == "\\": continue
+
+        result.append(parts)
+        parts = []
+
+    if parts:
+        result.append(parts)
+
+    if definition_name == "-":
+        definition_name = ([i[1] for i in result if i[0] == "DEPLOYNAME"] \
+                           or ["NONAME"])[0]
+
+    return definition_name, result
+
+def get_value(definition, *attributes):
+    for i in definition:
+        if tuple(i[:len(attributes)]) == attributes:
+            return i[len(attributes):]
+    return []
+
+def get_virt_install_params(vm_name, definition, mac, uuid):
+    defs = {attr: get_value(definition, "VM", attr) for attr in \
+            ["os-variant", "vcpus", "memory", "disk", "network", "vnc"]}
+
+    def get(attr, possible_lengths):
+        result = defs[attr]
+        if len(result) not in possible_lengths:
+            sys.stderr.write("Invalid number of arguments for `VM {0}'.\n" \
+                             .format(attr))
+            exit(1)
+        return result
+
+    params = ["--name={0}".format(vm_name), "--pxe", "--os-type=linux", \
+              "--noautoconsole"]
+
+    if uuid:
+        params += ["--uuid={0}".format(uuid)]
+
+    vnc = get("vnc", [0, 1])
+    if vnc:
+        if vnc[0] == "enable":
+            params.remove("--noautoconsole")
+
+    os_variant = get("os-variant", [0, 1])
+    if os_variant:
+        params += ["--os-variant={0}".format(os_variant[0])]
+
+    vcpus = get("vcpus", [0, 1])
+    if vcpus:
+        params += ["--vcpus={0}".format(vcpus[0])]
+
+    memory = get("memory", [1])
+    if memory:
+        mega = get_megabytes(memory[0])
+        if mega <= 0:
+            sys.stderr.write("Invalid amount of memory: {0}.\n" \
+                             .format(memory[0]))
+            exit(1)
+        params += ["--ram={0}".format(mega)]
+
+    disk = get("disk", [1, 3])
+    if disk:
+        if disk[0] == "nodisk" and len(disk) != 1 or len(disk) != 3:
+            sys.stderr.write("Invalid number of arguments for `VM disk'.\n")
+            exit(1)
+        if disk[0] == "nodisk":
+            pass
+        elif disk[0] in ["raw", "qcow2", "vmdk"]:
+            giga = get_gigabytes(disk[1])
+            path = os.path.join(disk[2], "{0}.{1}".format(vm_name, disk[0])) \
+                   if os.path.isdir(disk[2]) else disk[2]
+            if os.path.isfile(path):
+                sys.stderr.write("File '{0}' already exists.\n".format(path))
+                params += ["--disk=path={0}".format(path)]
+            else:
+                params += ["--disk=path={0},format={1},size={2}" \
+                           .format(path, disk[0], giga)]
+        else:
+            sys.stderr.write("Invalid disk format `{0}'.\n".format(disk[0]))
+            exit(1)
+
+    network = get("network", [1])
+    if network:
+        params += ["--network={0}{1}".format("mac={0},".format(mac) \
+                                             if mac else "", network[0])]
+
+    return params
+
+def vm_list(conn):
+    vms = conn.listDefinedDomains()
+    vms += [conn.lookupByID(i).name() for i in conn.listDomainsID()]
+    return vms
+
+def new_vm_name(conn, basename):
+    vms = set(vm_list(conn))
+    new_name = basename
+    i = 1
+    while new_name in vms:
+        i += 1
+        new_name = "{0}_{1}".format(basename, i)
+    return new_name
+
+def get_bytes(human_bytes):
+    m = re.match(r"(\d+)(B|K|G|T|P)?", human_bytes)
+    if not m:
+        return 0
+    size, unit = int(m.group(1)), m.group(2)
+    unit = unit or "B"
+    return size * 1024 ** ["B", "K", "M", "G", "T", "P"].index(unit)
+
+def get_megabytes(human_bytes):
+    return int(get_bytes(human_bytes) / 1024 ** 2)
+
+def get_gigabytes(human_bytes):
+    return int(get_bytes(human_bytes) / 1024 ** 3)
+
+if __name__ == "__main__":
+    parser = OptionParser()
+
+    parser.add_option("-m", "--mac", dest = "mac", \
+                      type = "string", default = "", \
+                      help = "Set network device hardware address to MAC", \
+                      metavar = "MAC")
+    parser.add_option("-u", "--uuid", dest = "uuid", \
+                      type = "string", default = "", \
+                      help = "Set vm uuid to UUID.", \
+                      metavar = "UUID")
+    parser.add_option("-n", "--name", dest = "vm_name", \
+                      type = "string", default = "", \
+                      help = "Set virtual machine name to NAME", \
+                      metavar = "NAME")
+    parser.add_option("-c", "--connection-uri", dest = "connection_uri", \
+                      type = "string", default = "qemu:///system", \
+                      help = "Set connection uri  to URI", metavar = "URI")
+    parser.add_option("-p", "--print", dest = "print_args", \
+                      action = "store_true", default = False, \
+                      help = "Print virt-install arguments and exit")
+    parser.add_option("-v", "--version", dest = "version", \
+                      action = "store_true", default = False, \
+                      help = "Print plugin version and exit")
+
+    parser.set_description(__doc__)
+    parser.set_usage("libvirt [-v|--version] [-h|--help] " \
+                     "[-c|--connection-uri=<uri>] [-m|--mac=<mac>] " \
+                     "[-u|--uuid=<uuid>] [-n|--name=<name>] " \
+                     "<command> <definition> [-- virt-install args]")
+
+    OPTIONS, ARGS = parser.parse_args()
+
+    if OPTIONS.version:
+        sys.stdout.write("desctiption: {0}\n".format(__description__))
+        sys.stdout.write("version: {0}\n".format(__version__))
+        sys.stdout.write("minimum durian version: {0}\n" \
+                         .format(__minimum_durian_version__))
+        exit(0)
+
+    if len(ARGS) < 2:
+        sys.stderr.write("You have to specify a command and a definition.\n" \
+                         if len(ARGS) == 0 else \
+                         "You have to specify a definition.\n")
+        exit(1)
+
+    command = ARGS[0]
+    definition_name, definition = get_definition(ARGS[1])
+
+    conn = libvirt.open(OPTIONS.connection_uri)
+
+    if command == "install":
+        vm_name = OPTIONS.vm_name or new_vm_name(conn, definition_name)
+        virt_install_params = get_virt_install_params(vm_name, definition, \
+                                                      OPTIONS.mac, \
+                                                      OPTIONS.uuid)
+        virt_install_params += ARGS[2:]
+        if OPTIONS.print_args:
+            sys.stdout.write(" ".join(virt_install_params) + \
+                             "\n" if virt_install_params else "")
+            exit(0)
+        retcode = virt_install(*virt_install_params)
+        exit(retcode)
+    else:
+        sys.stderr.write("Invalid command `{0}'.\n".format(command))
+        exit(1)

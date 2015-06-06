@@ -1,0 +1,95 @@
+#!/usr/bin/env python
+#
+# Durian Debian Deployer
+# Originally Developed by Mohammad Razavi <mrazavi64 at gmail dot com>
+#
+
+"""\
+This plugin has the same functionality as 'depends' plugin, but it
+uses the python apt module. The use of 'depends' is recommended.
+"""
+
+import os, sys, re, subprocess
+from optparse import OptionParser
+import apt
+
+__version__ = "1.0.0"
+__minimum_durian_version__ = "1.0.0"
+__description__ = "deprecated version of 'depends'"
+
+
+def get_top_version(version_list):
+    p = subprocess.Popen(["sort", "-rV"], stdout = subprocess.PIPE, \
+                         stdin = subprocess.PIPE, stderr = subprocess.PIPE)
+    stdin = "\n".join(i.version for i in version_list)
+    stdout, stderr = p.communicate(input = stdin)
+    return stdout.split()[0] if stdout else sorted(versions)[-1]
+
+def get_depends(apt_cache, follow, package_name):
+    if package_name not in apt_cache: return []
+
+    pkgs = apt_cache[package_name]
+    ver = get_top_version(pkgs.versions)
+    pkg = pkgs.versions[ver]
+
+    depend_list = lambda x: getattr(pkg, \
+                  {"Depends": "dependencies", "Recommends": "recommends", \
+                   "Suggests": "suggests", "Enhances": "enhances", \
+                   "Provides": "provides"}[x])
+
+    # TODO: consider packages architecture for multi-arch
+    normalize = lambda x: re.sub(r":.*", "", x)
+
+    result = set([])
+
+    for f in follow:
+        deps = depend_list(f)
+
+        #each item in "deps" is a list of dependencies that either of them
+        #satisfies the dependency (OR operator)
+        for or_dep in deps:
+            for dep in or_dep:
+                result.add(normalize(dep.name))
+
+    return result
+
+def get_rdepends(apt_cache, follow, pkgs, dep_cache):
+    for pkg in pkgs:
+        if pkg in dep_cache: continue
+        dep_cache[pkg] = get_depends(apt_cache, follow, pkg)
+        get_rdepends(apt_cache, follow, dep_cache[pkg], dep_cache)
+    return dep_cache.keys()
+
+if __name__ == "__main__":
+    parser = OptionParser()
+
+    parser.add_option("-f", "--follow", dest="follow",
+                      type = "string", default = "Depends,Recommends",
+                      help = "A comma-separated list of DEPENDS types to " \
+                      "follow recursively.", metavar = "DEPENDS")
+    parser.add_option("-v", "--version", dest = "version", \
+                      action = "store_true", default = False, \
+                      help = "Print plugin version and exit")
+
+    parser.set_description(__doc__)
+    parser.set_usage("depends [-v|--version] [-h|--help] " \
+                     "[-f|--follow=<depends>] <packages>")
+
+    OPTIONS, ARGS = parser.parse_args()
+
+    if OPTIONS.version:
+        sys.stdout.write("desctiption: {0}\n".format(__description__))
+        sys.stdout.write("version: {0}\n".format(__version__))
+        sys.stdout.write("minimum durian version: {0}\n" \
+                         .format(__minimum_durian_version__))
+        exit(0)
+
+    if not ARGS:
+        sys.stderr.write("You have to specify apt packages.\n")
+        exit(1)
+
+    follow = OPTIONS.follow.split(",")
+
+    apt_cache = apt.Cache()
+    result = get_rdepends(apt_cache, follow, ARGS, {})
+    sys.stdout.write("{0}\n".format("\n".join(sorted(result))))

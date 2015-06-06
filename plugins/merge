@@ -1,0 +1,178 @@
+#!/usr/bin/env python
+#
+# Durian Debian Deployer
+# Originally Developed by Mohammad Razavi <mrazavi64 at gmail dot com>
+#
+
+"""\
+The given debian preconfiguration files, will be merged, in
+order. Each file overwrites the previous configurations.
+
+For more information about debian preconfiguration files visit:
+https://www.debian.org/releases/stable/i386/apbs03.html.en
+
+"""
+
+import os, sys, re
+from optparse import OptionParser
+from itertools import chain
+
+from durian.DurianManager import Durian
+
+__version__ = "1.0.0"
+__minimum_durian_version__ = "1.0.0"
+__description__ = "merge preseed files into a single file"
+
+def dump_seed(seed_name, definition = None):
+    args = ("dump",) + \
+           (("--definition=-",) if definition else ()) + \
+           ("seed", seed_name)
+    kwargs = {"input": definition} if definition else {}
+    retcode, stdout, stderr = Durian().call(*args, **kwargs)
+    if retcode != 0:
+        sys.stderr.write("Coudn't retrieve the contents of '{0}'. {1} {2}\n" \
+                         .format(seed_name, stderr, stdout))
+        exit(1)
+
+    return stdout
+
+def parse_seed(seed_name, definition = None):
+    """\
+    Returns a list of strings and tuples. Strings are for empty lines
+    and comments. Tuples are for other lines. Each line will be
+    splited to four parts (owner, question, type and value) lines with
+    a trailing back-slash will be merged into one.
+    """
+
+    comment_rx = re.compile(r"^\s*#.*$|^\s*$")
+    separator_rx = re.compile(r"[\s\\]")
+
+    result = ["#{:#^70}\n".format(" {0} ".format(seed_name))]
+
+    seed_content = dump_seed(seed_name, definition)
+    lines = seed_content.split("\n")
+
+    middle, parts = False, []
+    for line_number, line in enumerate(lines):
+        if not middle and comment_rx.match(line):
+            result += [line]
+            continue
+
+        if len(parts) < 3:
+            parts += [i for i in separator_rx.split(line, 3 - len(parts)) if i]
+        elif len(parts) == 3:
+            parts.append(line)
+        else:
+            parts[-1] += "\n" + line
+
+        if not line.strip().endswith("\\"):
+            if len(parts) < 3:
+                sys.stderr.write("Syntax error in seed '{0}' line " \
+                                 "{1}.\n".format(seed_name, line_number))
+                exit(1)
+            elif len(parts) == 3:
+                parts.append("")
+
+            result += [tuple(parts)]
+
+            middle, parts = False, []
+   
+    return result
+
+def merge_seeds(seeds, ignore_merge):
+    def comment_out(line):
+        return ("#{0}".format(line[0]),) + line[1:3] + \
+               (line[3].replace("\n", "\n#"),)
+
+    result = []
+
+    # in the following, "key" is the mix of owner and question
+
+    dash_dash_merged_keys = {(line[0][:-7], line[1]) for line in seeds \
+                             if not isinstance(line, basestring) and \
+                             line[0].endswith("--merge")}
+
+    seen_keys = set()
+    merged_items = {}
+
+    for line in reversed(seeds):
+        if isinstance(line, basestring):
+            result.insert(0, line)
+            continue
+
+        owner, question, datatype, value = line
+
+        is_dash_dash_merge = owner.endswith("--merge") or \
+                             owner in dash_dash_merged_keys        
+        owner = owner[:-7] if owner.endswith("--merge") else owner
+        key = (owner, question)
+
+        if not ignore_merge and is_dash_dash_merge or \
+           not is_dash_dash_merge and key in seen_keys:
+            result.insert(0, " ".join(comment_out(line)))
+        else:
+            result.insert(0, " ".join(line))
+
+        seen_keys.add(key)
+
+        if not ignore_merge and is_dash_dash_merge:
+            merged_items.setdefault((owner, question, datatype), []) \
+                        .insert(0, value)
+
+    if merged_items:
+        result += ["\n#{:#^70}\n".format(" MERGED ")]
+        for owner_question_datatype, values in merged_items.items():
+            value = " \\\n".join(values)
+            result += [" ".join(owner_question_datatype + (value,))]
+
+    return "\n".join(result)
+
+if __name__ == "__main__":
+    parser = OptionParser()
+
+    parser.add_option("-o", "--output", dest = "output", \
+                      type = "string", default = "-", \
+                      help = "Write output to FILE", metavar="FILE")
+    parser.add_option("-d", "--definition", dest = "definition", \
+                      type = "string", default = "", \
+                      help = "Read definition from FILE for superseeds", \
+                      metavar="FILE")
+    parser.add_option("-M", "--ignore-merge", dest = "ignore_merge", \
+                      action = "store_true", default = False, \
+                      help = "Do not concatenate or merge lines with " \
+                      "'--merge' suffix")
+    parser.add_option("-v", "--version", dest = "version", \
+                      action = "store_true", default = False, \
+                      help = "Print plugin version and exit")
+
+    parser.set_description(__doc__)
+    parser.set_usage("merge [-v|--version] [-h|--help] " \
+                     "[-o|--output=<path>] [-d|--definition=FILE] " \
+                     "[-M|--ignore-merge] <seed_file>...")
+
+    OPTIONS, ARGS = parser.parse_args()
+
+    if OPTIONS.version:
+        sys.stdout.write("desctiption: {0}\n".format(__description__))
+        sys.stdout.write("version: {0}\n".format(__version__))
+        sys.stdout.write("minimum durian version: {0}\n" \
+                         .format(__minimum_durian_version__))
+        exit(0)
+
+    if not ARGS:
+        sys.stderr.write("You have to specify preseed files.\n")
+        exit(1)
+
+    definition = None
+    if OPTIONS.definition:
+        with sys.stdin if OPTIONS.definition == "-" else \
+             open(OPTIONS.definition) as fp:
+            definition = fp.read()
+
+    seeds = sum([parse_seed(seed_name, definition) for seed_name in ARGS], [])
+
+    output = merge_seeds(seeds, OPTIONS.ignore_merge)
+
+    with sys.stdout if OPTIONS.output == "-" else open(OPTIONS.output, "w") \
+         as outputfile:
+        outputfile.write(output)

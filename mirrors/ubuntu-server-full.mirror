@@ -1,0 +1,8 @@
+#dist trusty,trusty-security,trusty-updates
+#arch amd64
+
+#include ubuntu-udeb-minimal
+#include ubuntu-server-kernel
+#include ubuntu-server-minimal
+#include ubuntu-server-extras
+#section debian-installer

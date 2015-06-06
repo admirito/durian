@@ -1,0 +1,165 @@
+#!/usr/bin/env python
+#
+# Durian Debian Deployer
+# Originally Developed by Mohammad Razavi <mrazavi64 at gmail dot com>
+#
+
+"""\
+Dump the contents of a definition or a seed or the packages of a mirror.
+"""
+
+import os, sys, re, subprocess
+from optparse import OptionParser
+
+from durian.DurianManager import Durian
+
+__version__ = "1.0.0"
+__minimum_durian_version__ = "1.0.0"
+__description__ = "dump the contents of definition/seed/mirror"
+
+def find_items(item_type, item_name = None):
+    retcode, stdout, stderr = Durian().call("list", "--superseeds", \
+                                            item_type, \
+                                            *([item_name] if item_name else \
+                                              []))
+    if retcode != 0:
+        sys.stderr.write("Error while calling durian list.\n")
+        exit(1)
+
+    result = {}
+    for line in stdout.split("\n"):
+        if not line: continue
+        result.update([line.split()])
+
+    return result   
+
+def find_mirror_packages(mirrors, mirror_name, already_seen = None):
+    """\
+    Given @mirrors dictionary (retrieved from find_items("mirror")) and
+    @mirror_name find_mirror_packages will returns four
+    sets. Distributions, Architectures, Sections and Packages of the mirror.
+    """
+    if already_seen is None:
+        already_seen = set()
+
+    if mirror_name in already_seen:
+        return set(), set(), set()
+
+    already_seen.add(mirror_name)
+
+    if mirror_name not in mirrors:
+        sys.stderr.write("Invalid mirror profile: `{0}'\n".format(mirror_name))
+        exit(1)
+
+    mirrorfile = mirrors[mirror_name]
+    dists, archs, sections, packages = set(), set(), set(), set()
+
+    with open(mirrorfile) as mirrorfp:
+        for line in mirrorfp:
+            line = line.strip()
+            if line.startswith("#dist"):
+                parts = line.split()
+                if len(parts) == 2:
+                    dists |= set(parts[1].split(","))
+            if line.startswith("#arch"):
+                parts = line.split()
+                if len(parts) == 2:
+                    archs |= set(parts[1].split(","))
+            if line.startswith("#section"):
+                parts = line.split()
+                if len(parts) == 2:
+                    sections |= set(parts[1].split(","))
+            if line.startswith("#include"):
+                parts = line.split()
+                if len(parts) == 2:
+                    new_dists, new_archs, new_sections, new_packages = \
+                          find_mirror_packages(mirrors, parts[1], already_seen)
+                    dists |= new_dists
+                    archs |= new_archs
+                    sections |= new_sections
+                    packages |= new_packages
+            elif not line.startswith("#"):
+                package = line.strip()
+                if package:
+                    packages.add(package)
+
+    return dists, archs, sections, packages
+
+if __name__ == "__main__":
+    parser = OptionParser()
+
+    parser.add_option("-d", "--definition", dest = "definition", \
+                      type = "string", default = "", \
+                      help = "Read definition from FILE for superseeds", \
+                      metavar="FILE")
+    parser.add_option("-v", "--version", dest = "version", \
+                      action = "store_true", default = False, \
+                      help = "Print plugin version and exit")
+
+    parser.set_description(__doc__)
+    parser.set_usage("dump [-v|--version] [-h|--help] " \
+                     "<definition|seed|mirror> <name>")
+
+    OPTIONS, ARGS = parser.parse_args()
+
+    if OPTIONS.version:
+        sys.stdout.write("desctiption: {0}\n".format(__description__))
+        sys.stdout.write("version: {0}\n".format(__version__))
+        sys.stdout.write("minimum durian version: {0}\n" \
+                         .format(__minimum_durian_version__))
+        exit(0)
+
+    if len(ARGS) != 2:
+        sys.stdout.write("You have to specify what you want.\n" \
+                         if len(ARGS) == 0 else \
+                         "You have to specify a name.\n" \
+                         if len(ARGS) == 1 else \
+                         "Invalid number of arguments.\n")
+        exit(1)
+
+    definition = None
+    if OPTIONS.definition:
+        with sys.stdin if OPTIONS.definition == "-" else \
+             open(OPTIONS.definition) as fp:
+            definition = fp.read()
+
+    item_type = ARGS[0]
+    item_name = ARGS[1]
+
+    if item_type in ["definition"]:
+        items = find_items(item_type, item_name)
+        if item_name not in items:
+            sys.stderr.write("'{0}' not found.\n".format(item_name))
+            exit(1)
+        filename = items[item_name]
+        with open(filename) as fp:
+            sys.stdout.write(fp.read())
+    elif item_type in ["seed"]:
+        items = find_items(item_type, item_name)
+        if item_name not in items:
+            sys.stderr.write("'{0}' not found.\n".format(item_name))
+            exit(1)
+        filename = items[item_name]
+        if filename.endswith(".superseed"):
+            p = subprocess.Popen((filename,), \
+                                 stdout = subprocess.PIPE, \
+                                 stderr = subprocess.PIPE, \
+                                 stdin = subprocess.PIPE)
+            stdout, stderr = p.communicate(input = definition)
+            sys.stdout.write(stdout)
+        else:
+            with open(filename) as fp:
+                sys.stdout.write(fp.read())
+    elif item_type in ["mirror"]:
+        mirrors = find_items("mirrors")
+        dists, archs, sections, packages = find_mirror_packages(mirrors, \
+                                                                item_name)
+        if dists:
+            sys.stdout.write("#dist {0}\n".format(",".join(dists)))
+        if archs:
+            sys.stdout.write("#arch {0}\n".format(",".join(archs)))
+        if sections:
+            sys.stdout.write("#section {0}\n".format(",".join(sections)))
+        if packages:
+            sys.stdout.write("\n".join(sorted(packages)))
+            sys.stdout.write("\n")

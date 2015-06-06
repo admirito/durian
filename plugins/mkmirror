@@ -1,0 +1,146 @@
+#!/usr/bin/env python
+#
+# Durian Debian Deployer
+# Originally Developed by Mohammad Razavi <mrazavi64 at gmail dot com>
+#
+
+"""\
+Make a debian/ubuntu packages archive mirror. By exploiting
+"debmirror" utility, it can download/maintains a partial local mirror
+of apt packages.
+"""
+
+import os, sys, re, subprocess, errno
+from optparse import OptionParser
+import apt
+
+from durian.DurianManager import Durian
+
+__version__ = "1.0.0"
+__minimum_durian_version__ = "1.0.0"
+__description__ = "make a local mirror for apt packages"
+
+def get_package_dependency(packages):
+    retcode, stdout, stderr = Durian().call("depends", *packages)
+    if retcode != 0:
+        sys.stderr.write(stderr)
+        exit(1)
+
+    return set(stdout.split())
+
+def get_debmirror_package_selection_args(profile, get_dependency = True):
+    retcode, stdout, stderr = Durian().call("dump", "mirror", profile)
+    if retcode != 0:
+        sys.stderr.write(stderr)
+        exit(1)
+
+    dists = "trusty,trusty-security,trusty-updates"
+    archs = "amd64"
+    sections = set()
+    packages = set()
+    for line in stdout.split("\n"):
+        line = line.strip()
+        if line.startswith("#dist"):
+            dists = dists if len(line.split()) != 2 else line.split()[1]
+        elif line.startswith("#arch"):
+            archs = archs if len(line.split()) != 2 else line.split()[1]
+        elif line.startswith("#section"):
+            sections |= set() if len(line.split()) != 2 else \
+                        set(line.split()[1].split(","))
+        elif line and not line.startswith("#"):
+            packages.add(line)
+
+    fix_regex = lambda x: x.replace("+", r"\+")
+
+    if get_dependency:
+        packages |= get_package_dependency(packages)
+
+    params = ["--dist={0}".format(dists), \
+              "--arch={0}".format(archs), \
+              "--exclude-field=Package=.*"]
+
+    if packages:
+        params += ["--include-field=Package={0}" \
+                   .format("|".join("^{0}$".format(fix_regex(i)) \
+                                    for i in packages))]
+
+    if sections:
+        params += ["--include-field=Section={0}" \
+                   .format("|".join("^{0}$".format(fix_regex(i)) \
+                                    for i in sections))]
+
+    return params
+
+if __name__ == "__main__":
+    parser = OptionParser()
+
+    parser.add_option("--debmirror", dest="debmirror",
+                      type = "string", default = "debmirror",
+                      help = "Set debmirror executable path to PATH", \
+                      metavar = "PATH")
+    parser.add_option("-p", "--profile", dest="profile",
+                      type = "string", default = "default",
+                      help = "Set mirror download profile to PROFILE", \
+                      metavar = "PROFILE")
+    parser.add_option("--print-regex", dest = "print_regex", \
+                      action = "store_true", default = False, \
+                      help = "Print debmirror regular expressions and exit")
+    parser.add_option("--print-default-args", dest = "print_default_args", \
+                      action = "store_true", default = False, \
+                      help = "Print default arguments that will passed to " \
+                      "debmirror and exit")
+    parser.add_option("--no-default-args", dest = "default_args", \
+                      action = "store_false", default = True, \
+                      help = "Don't send default arguments to debmirror.")
+    parser.add_option("--no-dependency", dest = "dependency", \
+                      action = "store_false", default = True, \
+                      help = "Don't include required dependency of packages")
+    parser.add_option("-v", "--version", dest = "version", \
+                      action = "store_true", default = False, \
+                      help = "Print plugin version and exit")
+
+    parser.set_description(__doc__)
+    parser.set_usage("mkmirror [-v|--version] [-h|--help] " \
+                     "[--debmirror=<path>] [-p|--profile=<profile>] " \
+                     "[--print-regex] [--print-default-args] " \
+                     "[--no-default-args] [--no-dependency] " \
+                     "[-- <debmirror args>] <mirror-location>")
+
+    OPTIONS, ARGS = parser.parse_args()
+
+    if OPTIONS.version:
+        sys.stdout.write("desctiption: {0}\n".format(__description__))
+        sys.stdout.write("version: {0}\n".format(__version__))
+        sys.stdout.write("minimum durian version: {0}\n" \
+                         .format(__minimum_durian_version__))
+        exit(0)
+
+    if not ARGS and \
+       not OPTIONS.print_default_args and not OPTIONS.print_regex:
+        sys.stderr.write("You have to specify the mirror location.\n")
+        exit(1)
+
+    if OPTIONS.default_args:
+        DEFAULT_ARGS = ["--verbose", "--progress", "--method=http", \
+                        "--rsync-extra=none", "--nosource", "--no-check-gpg"]
+
+    if OPTIONS.print_default_args:
+        sys.stdout.write("\n".join(DEFAULT_ARGS))
+        sys.stdout.write("\n" if DEFAULT_ARGS else "")
+        exit(0)
+
+    debmirror_args = get_debmirror_package_selection_args(OPTIONS.profile, \
+                                                          OPTIONS.dependency)
+
+    if OPTIONS.print_regex:
+        sys.stdout.write("\n".join(debmirror_args))
+        sys.stdout.write("\n" if debmirror_args else "")
+        exit(0)
+
+    try:
+        retcode = subprocess.call([OPTIONS.debmirror] + DEFAULT_ARGS + \
+                                  debmirror_args + ARGS)
+        exit(retcode)
+    except Exception as e:
+        sys.stderr.write("{0}\n".format(e))
+        exit(1)

@@ -1,0 +1,353 @@
+#!/usr/bin/env python
+#
+# Durian Debian Deployer
+# Originally Developed by Mohammad Razavi <mrazavi64 at gmail dot com>
+#
+
+"""\
+Make a host ready for deployment by creating a pxelinux configuration
+for the specified host. The host could be specified by its UUID, MAC
+address, or IP subnet.
+"""
+
+import os, sys, re, random, uuid, subprocess
+from optparse import OptionParser
+from itertools import chain
+from tempfile import NamedTemporaryFile
+from distutils.spawn import find_executable
+
+from durian.DurianManager import Durian
+
+__version__ = "1.0.0"
+__minimum_durian_version__ = "1.0.0"
+__description__ = "make a host ready for deployment"
+
+def create_vm(vm_type, definition_content, vm_uuid, vm_mac):
+    args = (vm_type,) + \
+           (("--uuid={0}".format(vm_uuid),) if vm_uuid else ()) + \
+           (("--mac={0}".format(vm_mac),) if vm_mac else ()) + \
+           ("install", "-")
+    retcode, stdout, stderr = Durian().call(*args, \
+                                            stdout = None, stderr = None, \
+                                            input = definition_content)
+    if retcode != 0:
+        sys.stderr.write("Coudn't create the virtual machine.\n")
+        exit(1)
+
+def dump_definition(definition_name):
+    retcode, stdout, stderr = Durian().call("dump", "definition", \
+                                            definition_name)
+    if retcode != 0:
+        sys.stderr.write("Coudn't retrieve the contents of '{0}'\n" \
+                         .format(definition_name))
+        exit(1)
+    
+    return stdout
+
+def edit(content):
+    with NamedTemporaryFile(delete = False) as fp:
+        filename = fp.name
+        fp.write(content)
+
+    editors = ["sensible-editor", os.environ.get("EDITOR"), \
+               os.environ.get("VISUAL"), "nano", "emacs", "vim", "vi"]
+    editors = filter(None, editors)
+    editor = (map(find_executable, editors) or [None])[0]
+
+    if not editor:
+        sys.stderr.write("sensible-editor not found. Please set EDITOR "\
+                         "environment variable.\n")
+        exit(1)
+
+    retcode = subprocess.call((editor, filename))
+
+    if retcode != 0:
+        sys.stderr.write("Editor exited with status code {0}\n." \
+                         .format(retcode))
+        exit(1)
+
+    with open(filename) as fp:
+        content = fp.read()
+
+    os.remove(filename)
+
+    for line in content.split("\n"):
+        if line.strip() == "CANCEL":
+            sys.stderr.write("Deployment canceled with user request.\n")
+            exit(1)
+
+    return content
+
+def parse_definition(definition_content):
+    result = []
+    parts = []
+    for line in definition_content.split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#"): continue
+
+        parts += line.split()
+
+        if parts[-1] == "\\": continue
+
+        result.append(parts)
+        parts = []
+
+    if parts:
+        result.append(parts)
+
+    return result
+
+def get_value(definition, *attributes):
+    for i in definition:
+        if tuple(i[:len(attributes)]) == attributes:
+            return i[len(attributes):]
+    return []
+
+def merge_seeds(seed_names, definition):
+    retcode, stdout, stderr = Durian().call("merge", "--definition=-", \
+                                            *seed_names, input = definition)
+    if retcode != 0:
+        sys.stderr.write("Coudn't merge seed files. {0}\n" \
+                         .format(stderr))
+        exit(1)
+
+    return stdout
+
+def get_pxelinux_conf_name(host, arp_type_code):
+    uuid_rx = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-" \
+                         "[0-9a-f]{4}-[0-9a-f]{12}$")
+    mac_rx = re.compile(r"^([0-9a-f]{2}[-:\s]){5}[0-9a-f]{2}$")
+    subnet_rx = re.compile(r"^(\d+)\.(\d+)\.(\d+)\.(\d+)(?:/(\d+))?$")
+
+    lhost = host.lower()
+
+    if uuid_rx.match(lhost):
+        return lhost
+
+    if mac_rx.match(lhost):
+        return "{0:02x}-{1}".format(arp_type_code, \
+                                    lhost.replace(":", "-").replace(" ", "-"))
+
+    m = subnet_rx.match(lhost)
+    if m:
+        ip_parts = ["{0:02x}".format(int(i)) for i in \
+                    m.groups()[:4] if 0 <= int(i) <=255]
+        subnet = int(m.groups()[4]) if m.groups()[4] else 32
+        
+        if len(ip_parts) == 4 and 0 <= subnet <= 32:
+            name = "".join(ip_parts)
+            return name[:subnet / 4].upper() or "default"    
+
+    sys.stderr.write("'{0}' is not a UUID, MAC or IP address. Using '{0}' " \
+                     "iteself as the pxelinux configuration name.\n" \
+                     .format(host))
+
+    return host
+
+def randomMAC():
+    # this function could also be implemented using virtinst library:
+    # import virtinst
+    # virtinst.util.randomMAC("qemu")
+    mac = [0x52, 0x54, 0x00,
+           random.randint(0x00, 0xff),
+           random.randint(0x00, 0xff),
+           random.randint(0x00, 0xff)]
+    return ":".join(map(lambda x: "{0:02x}".format(x), mac))
+
+def invert_uuid(UUID):
+    UUID = str(UUID)
+    def double_char(string):
+        for i in range(0, len(string), 2):
+            yield string[i:i+2]
+    def rev(part):
+        return "".join(reversed(list(double_char(part))))
+    def same(part):
+        return part
+    maps = [rev, rev, rev, same, same]
+    return "-".join(maps[i](part) for i, part in enumerate(UUID.split("-")))
+
+if __name__ == "__main__":
+    parser = OptionParser()
+
+    parser.add_option("-r", "--netboot-root", dest = "netboot_root", \
+                      type = "string", default = "", \
+                      help = "Set netboot root to DIR", metavar = "DIR")
+    parser.add_option("-i", "--netboot-ip", dest = "netboot_ip", \
+                      type = "string", default = "", \
+                      help = "Set netboot server address to IP", \
+                      metavar = "IP")
+    parser.add_option("--arp-type", dest = "arp_type", \
+                      type = "int", default = "1", \
+                      help = "Set ARP type to CODE (default is 1 i.e. " \
+                      "Ethernet)", metavar = "CODE")
+    parser.add_option("--initrd", dest = "initrd", \
+                      type = "string", default = "initrd.img", \
+                      help = "Set initrd filename to FILE", metavar = "FILE")
+    parser.add_option("--kernel", dest = "kernel", \
+                      type = "string", default = "vmlinuz", \
+                      help = "Set kernel filename to FILE", metavar = "FILE")
+    parser.add_option("--options", dest = "options", \
+                      type = "string", default = "locale=en_US " \
+                      "console-setup/ask_detect=false " \
+                      "console-setup/layoutcode=us", \
+                      help = "Add OPTIONS to kernel options", \
+                      metavar = "OPTIONS")
+    parser.add_option("-H", "--hostname", dest = "hostname", \
+                      type = "string", default = "", \
+                      help = "Set hostname to NAME", metavar = "NAME")
+    parser.add_option("-d", "--domain", dest = "domain", \
+                      type = "string", default = "", \
+                      help = "Set domain to NAME", metavar = "NAME")
+    parser.add_option("--vm-type", dest = "vm_type", \
+                      type = "string", default = "libvirt", \
+                      help = "Set virtual machine type (e.g. libvirt) " \
+                      "to TYPE", metavar = "TYPE")
+    parser.add_option("--vm-uuid", dest = "vm_uuid", \
+                      action = "store_true", default = False, \
+                      help = "Used UUID to deploy virtual machines")
+    parser.add_option("--vm-mac", dest = "vm_mac", \
+                      action = "store_true", default = False, \
+                      help = "Used MAC address to deploy virtual machines")
+    parser.add_option("-e", "--edit", dest = "edit", \
+                      action = "store_true", default = False, \
+                      help = "Edit the definition in sensible-editor " \
+                      "interactively, before using.")
+    parser.add_option("-E", "--seed-edit", dest = "seed_edit", \
+                      action = "store_true", default = False, \
+                      help = "Edit the final preseed in sensible-editor " \
+                      "interactively, before using.")
+    parser.add_option("-v", "--version", dest = "version", \
+                      action = "store_true", default = False, \
+                      help = "Print plugin version and exit")
+
+    parser.set_description(__doc__)
+    parser.set_usage("deploy [-v|--version] [-h|--help] " \
+                     "[-r|--netboot-root=<dir>] [-i|--netboot-ip=<ip>]" \
+                     "[--initrd=<file>] [--kernel=<file>] " \
+                     "[--options=<options>] [-H|--hostname=<name>]" \
+                     "[-d|--domain=<name>] [--vm-type=<type>]" \
+                     "[--vm-uuid|--vm-mac]" \
+                     "<definition> <uuid/mac/ip/vm> [<vm name>]")
+
+    OPTIONS, ARGS = parser.parse_args()
+
+    if OPTIONS.version:
+        sys.stdout.write("desctiption: {0}\n".format(__description__))
+        sys.stdout.write("version: {0}\n".format(__version__))
+        sys.stdout.write("minimum durian version: {0}\n" \
+                         .format(__minimum_durian_version__))
+        exit(0)
+
+    if len(ARGS) != 2 and \
+       not (len(ARGS) == 3 and ARGS[1] == "vm"):
+        sys.stderr.write("You have to specify a definition and a host.\n" \
+                         if len(ARGS) == 0 else \
+                         "You have to specify a host.\n" \
+                         if len(ARGS) == 1 else \
+                         "Invalid number of arguments.\n")
+        exit(1)
+
+    if not (00 <= OPTIONS.arp_type <= 255):
+        sys.stderr.write("Invalid ARP type code.\n")
+        exit(1)
+
+    netboot_root = OPTIONS.netboot_root or os.environ.get("NETBOOT_ROOT")
+    if not netboot_root:
+        sys.stderr.write("netboot root is not set.\n")
+        exit(1)
+
+    netboot_ip = OPTIONS.netboot_ip or os.environ.get("NETBOOT_IP")
+    if not netboot_ip:
+        sys.stderr.write("netboot server IP is not set.\n")
+        exit(1)
+
+    definition_name = ARGS[0]
+    definition_content = dump_definition(definition_name)
+    definition = parse_definition(definition_content)
+
+    vm_mac, vm_uuid = None, None
+    if ARGS[1] == "vm":
+        if OPTIONS.vm_mac:
+            name = vm_mac = randomMAC()
+        else:
+            vm_uuid = str(uuid.uuid4())
+            name = vm_uuid if OPTIONS.vm_uuid else invert_uuid(vm_uuid)
+        pxelinux_config_name = get_pxelinux_conf_name(name, \
+                                                      OPTIONS.arp_type)
+    else:
+        pxelinux_config_name = get_pxelinux_conf_name(ARGS[1], \
+                                                      OPTIONS.arp_type)
+
+    definition_content = "{old}\n\n# Added by deploy command (only useful " \
+                         "for superseeds):\n" \
+                         "DEPLOYNAME {name}\nDEPLOYTARGET {target}\n" \
+                         "DEPLOYOPTS {opts}\nDEPLOYARGS {args}" \
+                         .format(old = definition_content, 
+                                 name = definition_name, \
+                                 target = pxelinux_config_name, \
+                                 opts = OPTIONS, args = ARGS)
+
+    if OPTIONS.edit:
+        definition_content = "# Edit the deployment definition according to " \
+            "your needs, then \n# save the file and exit. If you wish to " \
+            "cancel the deployment,\n# use the command CANCEL by " \
+            "uncommenting the following line:\n# CANCEL\n\n{0}" \
+            .format(definition_content)
+        definition_content = edit(definition_content)
+        definition = parse_definition(definition_content)
+
+    hostname = OPTIONS.hostname
+    if not OPTIONS.hostname:
+        hostname = get_value(definition, "HOSTNAME")
+        hostname = hostname[0] if hostname else \
+                   os.environ.get("DURIAN_HOSTNAME") or definition_name
+
+    if "hostname=" not in OPTIONS.options:
+        OPTIONS.options = "{0} hostname={1}".format(OPTIONS.options, \
+                                                    hostname)
+
+    domain = OPTIONS.domain or os.environ.get("DURIAN_DOMAIN")
+    if domain:
+        OPTIONS.options = "{0} domain={1}".format(OPTIONS.options, domain)
+
+    sys.stderr.write("Generating durian seeds...\n")
+
+    seed_names = list(chain(*[i[1:] for i in definition if i[0] == "SEEDS"]))
+    seed_content = merge_seeds(seed_names, definition_content)
+    if OPTIONS.seed_edit:
+        seed_content = "# Edit the final preseed file according to " \
+            "your needs, then \n# save the file and exit. If you wish to " \
+            "cancel the deployment,\n# use the command CANCEL by " \
+            "uncommenting the following line:\n# CANCEL\n\n{0}" \
+            .format(seed_content)
+        seed_content = edit(seed_content)
+
+    seed_file = os.path.join(netboot_root, "seeds", \
+                             "{0}.seed".format(pxelinux_config_name))
+    with open(seed_file, "w") as fp:
+        fp.write(seed_content)
+
+    sys.stderr.write("Generating pxelinux configurations...\n")
+
+    pxelinux_config_file = os.path.join(netboot_root, "pxelinux.cfg", \
+                                        pxelinux_config_name)
+    with open(pxelinux_config_file, "w") as fp:
+        fp.write("default durian\n")
+        fp.write("label durian\n")
+        fp.write("kernel {0}\n".format(OPTIONS.kernel))
+        fp.write("append auto=true initrd={initrd} " \
+                 "url=tftp://{ip}/seeds/{filename}.seed {options} " \
+                 "quiet --\n".format \
+                 (initrd = OPTIONS.initrd, ip = netboot_ip, \
+                  filename = pxelinux_config_name, options = OPTIONS.options))
+
+    if ARGS[1] == "vm":
+        sys.stderr.write("Deploying a new virtual machine...\n")
+        create_vm(OPTIONS.vm_type, definition_content, vm_uuid = vm_uuid, \
+                  vm_mac = vm_mac)
+        sys.stderr.write("Deployment has begun. Your machine will be ready " \
+                         "in a couple of minutes.\n")
+    else:
+        sys.stderr.write("Deployment configurations are set.\n")
+        sys.stderr.write("Now, you have to boot the target system by " \
+                         "network (PXE).\n")

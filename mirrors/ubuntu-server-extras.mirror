@@ -1,0 +1,17 @@
+#dist trusty,trusty-security,trusty-updates
+#arch amd64
+
+#include apache2
+#include bmon
+#include curl
+#include elinks
+#include emacs24-nox
+#include htop
+#include ipython
+#include libvirt-bin
+#include nmap
+#include postgresql-9.3
+#include qemu-kvm
+#include sqlite3
+#include w3m
+#include zile

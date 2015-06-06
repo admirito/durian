@@ -1,0 +1,15 @@
+debconf-2.0
+ipython
+libgpm2
+libpython-stdlib
+libpython2.7-minimal
+libpython2.7-stdlib
+libstdc++6
+perlapi-5.18.1
+python
+python-decorator
+python-minimal
+python-pexpect
+python-simplegeneric
+python2.7
+python2.7-minimal

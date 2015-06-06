@@ -1,0 +1,102 @@
+.\"                                      Hey, EMACS: -*- nroff -*-
+.\" (C) Copyright 2014 Mohammad Razavi <mrazavi64@gmail.com>,
+.\"
+.\" First parameter, NAME, should be all caps
+.\" Second parameter, SECTION, should be 1-8, maybe w/ subsection
+.\" other parameters are allowed: see man(7), man(1)
+.TH DURIAN 1 "May 20, 2015"
+.\" Please adjust this date whenever revising the manpage.
+.\"
+.\" Some roff macros, for reference:
+.\" .nh        disable hyphenation
+.\" .hy        enable hyphenation
+.\" .ad l      left justify
+.\" .ad b      justify to both left and right margins
+.\" .nf        disable filling
+.\" .fi        enable filling
+.\" .br        insert line break
+.\" .sp <n>    insert n+1 empty lines
+.\" for manpage-specific macros, see man(7)
+.SH NAME
+durian \- debian and ubuntu atomatic and customized deployer
+.SH SYNOPSIS
+.B durian
+.RI [ options ]...
+command
+.RI [ command-arguments ]
+.SH DESCRIPTION
+This manual page documents briefly the
+.B durian
+command.
+.PP
+.\" TeX users may be more comfortable with the \fB<whatever>\fP and
+.\" \fI<whatever>\fP escape sequences to invode bold face and italics,
+.\" respectively.
+
+\fBDurian\fP is a set of tools to automate the installation of a
+debian based operating system. It provides tools to easily create a
+debian package archive mirror, setup PXE network booting and
+define several customized templates. Finally, you can deploy a system
+with just one single command. The deployment could be done on a
+physical or a virtual machine.
+.PP
+Durian provides several tools. Issuing the command \fBdurian\fP
+without any arguments display the available commands.
+.PP
+The command \fBhelp\fP following a command name will display the usage
+information and the help message of the desired command.
+.SH OPTIONS
+These programs follow the usual GNU command line syntax, with long
+options starting with two dashes (`-').
+A summary of options is included below.
+For a complete description, see the Info files.
+.TP
+.B \-h, \-\-help
+Show summary of options.
+.TP
+.B \fB\-\-plugins\-path\fR=\fIPATH\fR
+add PATH to plugins path
+.TP
+.B \fB\-\-seeds\-path\fR=\fIPATH\fR
+add PATH to seeds path
+.TP
+.B \fB\-\-mirrors\-path\fR=\fIPATH\fR
+add PATH to mirrors path
+.TP
+.B \fB\-\-definitions\-path\fR=\fIPATH\fR
+add PATH to definitions path
+.TP
+.B \-l, \-\-list\-commands
+Print list of supported durian commands and exit
+.TP
+.B \-v, \-\-version
+Print durian version and exit
+.SH FILES
+.TP
+\fI/etc/default/durian\fR
+Default environment variables could be defined here.
+.TP
+\fI/usr/share/durian/definitions\fR and \fI~/.durian/definitions\fR
+Directories containing durian definitions of machines for deployment.
+.TP
+\fI/usr/share/durian/seeds\fR and \fI~/.durian/seeds\fR
+Directories containing debian preseed files. Theses files will be merged in a definition and make a complete pressed file for installation. For more information about debian preseed files visit: https://www.debian.org/releases/wheezy/i386/apb.html.en
+.TP
+\fI/usr/share/durian/mirrors\fR and \fI~/.durian/mirrors\fR
+Directories containing durian mirror definitions. Each file contains
+the list of packages that \fBmkmirror\fP will include them in the
+mirror.
+.SH ENVIRONMENT VARIABLES
+PLUGINS_PATH
+SEEDS_PATH
+MIRRORS_PATH
+DEFINITIONS_PATH
+THEME_PATH
+DURIAN_EXE
+VIRT_INSTALL_EXE
+NETBOOT_ROOT
+NETBOOT_IP
+DURIAN_HOSTNAME
+DURIAN_DOMAIN
+.SH AUTHOR
+durian is originally written by Mohammad Razavi <mrazavi64@gmail.com>

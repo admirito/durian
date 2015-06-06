@@ -1,0 +1,9 @@
+#dist trusty,trusty-security,trusty-updates
+#arch amd64
+
+#linux-generic
+#linux-headers-generic
+linux-generic-lts-utopic
+linux-headers-generic-lts-utopic
+linux-generic-lts-vivid
+linux-headers-generic-lts-vivid

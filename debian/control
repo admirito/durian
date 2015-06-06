@@ -1,0 +1,20 @@
+Source: durian
+Section: utils
+Priority: optional
+Maintainer: Mohammad Razavi <mrazavi64@gmail.com>
+Build-Depends: debhelper (>= 9.0.0)
+Standards-Version: 3.9.4
+Homepage: http://durian-deployer.ir
+
+Package: durian
+Architecture: all
+Depends: ${shlibs:Depends}, ${misc:Depends}, python (>= 2.7.1), python (< 2.8), python-apt, debmirror
+Recommends: syslinux-common, python-libvirt, virtinst, sensible-utils, tftpd-hpa
+Suggests: debconf
+Description: debian and ubuntu atomatic and customized deployer
+ Durian is a set of tools to automate the installation of a Debian
+ based operating system. You can create a Debian package archive
+ mirror, easily setup PXE network booting and define several
+ customized templates. Finally, you can deploy a system with just one
+ single command. The deployment could be done on a physical or a
+ virtual machine.

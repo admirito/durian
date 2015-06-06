@@ -1,0 +1,1 @@
+d-i passwd/make-user boolean false

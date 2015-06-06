@@ -1,0 +1,6 @@
+d-i base-installer/install-recommends boolean false
+d-i base-installer/excludes string vim-common vim-tiny
+
+# Drivers to include in the initrd:
+# Choices: generic: include all available drivers, targeted: only include drivers needed for this system
+# bootstrap-base base-installer/initramfs-tools/driver-policy select most

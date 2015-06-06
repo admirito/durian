@@ -1,0 +1,184 @@
+#!/usr/bin/env python
+#
+# Durian Debian Deployer
+# Originally Developed by Mohammad Razavi <mrazavi64 at gmail dot com>
+#
+
+"""\
+Make necessary files for bootstarpping a system by PXE. It copy
+pxelinux.0, vmlinuz, initrd.img and other necessary files for network
+booting to the desired target.
+"""
+
+import os, sys, subprocess, shutil, urlparse
+from optparse import OptionParser
+
+__version__ = "1.0.0"
+__minimum_durian_version__ = "1.0.0"
+__description__ = "make necessary files for network booting (pxe)"
+
+INITRD_DEFAULT_PATH = "http://archive.ubuntu.com/ubuntu/dists/trusty/main/installer-amd64/current/images/netboot/ubuntu-installer/amd64/initrd.gz"
+
+KERNEL_DEFAULT_PATH = "http://archive.ubuntu.com/ubuntu/dists/trusty/main/installer-amd64/current/images/netboot/ubuntu-installer/amd64/linux"
+
+#PXELINUX_DEFAULT_PATH = "http://archive.ubuntu.com/ubuntu/dists/trusty/main/installer-amd64/current/images/netboot/ubuntu-installer/amd64/pxelinux.0"
+
+KERNEL_RELEASE = ""
+def get_kernel_release():
+    global KERNEL_RELEASE
+
+    if KERNEL_RELEASE:
+        return KERNEL_RELEASE
+
+    p = subprocess.Popen(["uname", "-r"], \
+                         stdout = subprocess.PIPE, \
+                         stderr = subprocess.PIPE)
+    stdout, stderr = p.communicate()
+    if p.returncode != 0:
+        sys.stderr.write("Error while calling uname. {0}\n".format(stderr))
+        exit(1)
+
+    KERNEL_RELEASE = stdout.strip()
+    return KERNEL_RELEASE
+
+def get_file(uri_string, target, downloader, downloader_output_param):
+    uri = urlparse.urlparse(uri_string)
+    if not uri.scheme:
+        shutil.copy(uri_string, target)
+    elif uri.scheme == "file":
+        shutil.copy(uri.path, target)
+    else:
+        target_path, target_name = os.path.split(target)
+        cmd = " ".join([downloader, downloader_output_param, target_name, \
+                        uri_string])
+        retcode = subprocess.call(cmd, shell = True, cwd = target_path)
+        if retcode != 0:
+            sys.stderr.write("Downloading `{0}' faild.\n".format(uri_string))
+
+if __name__ == "__main__":
+    parser = OptionParser()
+
+    parser.add_option("--kernel-path", dest="kernel_path",
+                      type = "string", default = KERNEL_DEFAULT_PATH,
+                      help = "Set kernel path to URI. It could be URL.", \
+                      metavar = "URI")
+    parser.add_option("--pxelinux", dest="pxelinux",
+                      type = "string", default = "/usr/lib/syslinux/pxelinux.0",
+                      help = "Set pxelinux.0 path to URI. Default value " \
+                      "is: /usr/lib/syslinux/pxelinux.0", metavar = "URI")
+    parser.add_option("--initrd", dest="initrd",
+                      type = "string", default = INITRD_DEFAULT_PATH,
+                      help = "Set initrd.img path to copy. It could be a " \
+                      "URL. If not set, one will be created by mkinitramfs", \
+                      metavar = "URI")
+    parser.add_option("--theme", dest="theme",
+                      type = "string", default = "", \
+                      help = "Set syslinux themes path to DIR. Default is: " \
+                      "themes/durian", metavar = "DIR")
+    parser.add_option("--download-command", dest="download_command",
+                      type = "string", default = "wget -nc -c", \
+                      help = "Change download command to CMD (default is " \
+                      "\"wget -nc -c\")", metavar = "CMD")
+    parser.add_option("--download-output", dest="download_output",
+                      type = "string", default = "-O", \
+                      help = "Add PARAM plus output filename to download " \
+                      "command arguments (default is \"-O\" for wget) ", \
+                      metavar = "PARAM")
+    parser.add_option("--aria2", dest = "aria2", \
+                      action = "store_true", default = False, \
+                      help = "Overwrite --download-command=\"aria2c -x16 " \
+                      "-s16 -k1M --auto-file-renaming=false\" and " \
+                      "--download-output=\"-o\".")
+    parser.add_option("-D", "--no-download", dest = "no_download", \
+                      action = "store_true", default = False, \
+                      help = "Overwrite --kernel-path and --initrd so no" \
+                      "download is required.")
+    parser.add_option("-v", "--version", dest = "version", \
+                      action = "store_true", default = False, \
+                      help = "Print plugin version and exit")
+
+    parser.set_description(__doc__)
+    parser.set_usage("mkboot [-v|--version] [-h|--help] " \
+                     "[--kernel-path=<uri>] [--pxelinux=<uri>] " \
+                     "[--initrd=<uri>] [--theme=<dir>] " \
+                     "[--download-command=<cmd>] [--download-output=<param>]" \
+                     "[-D|--no-download] [<netboot-location>]")
+
+    OPTIONS, ARGS = parser.parse_args()
+
+    if OPTIONS.version:
+        sys.stdout.write("desctiption: {0}\n".format(__description__))
+        sys.stdout.write("version: {0}\n".format(__version__))
+        sys.stdout.write("minimum durian version: {0}\n" \
+                         .format(__minimum_durian_version__))
+        exit(0)
+
+    if len(ARGS) > 1:
+        sys.stderr.write("Invalid number of argumetns.\n")
+        exit(1)
+
+    if OPTIONS.no_download:
+        OPTIONS.kernel_path = OPTIONS.initrd = "-"
+
+    if OPTIONS.aria2:
+        OPTIONS.download_command = "aria2c -x16 -s16 -k1M " \
+                                   "--auto-file-renaming=false"
+        OPTIONS.download_output = "-o"
+
+    if len(ARGS) == 0:
+        target = os.environ.get("NETBOOT_ROOT")
+        if target:
+            sys.stderr.write("NETBOOT_ROOT={0}\n".format(target))
+        else:
+            sys.stderr.write("You have to specify a location to create " \
+                             "network boot files.\n")
+            exit(1)
+    else:
+        target = ARGS[0]
+
+    if os.path.isdir(target):
+        sys.stderr.write("'{0}' already exists.\n".format(target))
+    else:
+        os.mkdir(target)
+
+    if not OPTIONS.kernel_path.strip() or OPTIONS.kernel_path == "-":
+        OPTIONS.kernel_path = "/boot/vmlinuz-{0}".format(get_kernel_release())
+
+    get_file(OPTIONS.kernel_path, os.path.join(target, "vmlinuz"), \
+             OPTIONS.download_command, OPTIONS.download_output)
+    get_file(OPTIONS.pxelinux, os.path.join(target, "pxelinux.0"), \
+             OPTIONS.download_command, OPTIONS.download_output)
+
+    seeds_dir = os.path.join(target, "seeds")
+    if not os.path.isdir(seeds_dir):
+        os.mkdir(seeds_dir)
+
+    themes_dir = os.path.join(target, "themes")
+    if not os.path.isdir(themes_dir):
+        os.mkdir(themes_dir)
+
+    durian_theme_dir = os.path.join(themes_dir, "durian")
+    if os.path.isdir(durian_theme_dir):
+        sys.stderr.write("'{0}' already exists. Skip copying themes.\n" \
+                         .format(durian_theme_dir))
+    else:
+        OPTIONS.theme = OPTIONS.theme or os.environ.get("THEME_PATH")
+        shutil.copytree(OPTIONS.theme, durian_theme_dir)
+
+    if not OPTIONS.initrd.strip() or OPTIONS.initrd == "-":
+        subprocess.call(["mkinitramfs", "-o", \
+                         os.path.join(target, "initrd.img")])
+    else:
+        get_file(OPTIONS.initrd, os.path.join(target, "initrd.img"), \
+                 OPTIONS.download_command, OPTIONS.download_output)
+
+    pxelinux_cfg = os.path.join(target, "pxelinux.cfg")
+    if not os.path.isdir(pxelinux_cfg):
+        os.mkdir(pxelinux_cfg)
+
+    with open(os.path.join(pxelinux_cfg, "default"), "w") as fp:
+        fp.write("# D-I config version 2.0\n")
+        fp.write("include themes/durian/menu.cfg\n")
+        fp.write("default themes/durian/vesamenu.c32\n")
+        fp.write("prompt 0\n")
+        fp.write("timeout 0\n")

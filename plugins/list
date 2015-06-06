@@ -1,0 +1,169 @@
+#!/usr/bin/env python
+#
+# Durian Debian Deployer
+# Originally Developed by Mohammad Razavi <mrazavi64 at gmail dot com>
+#
+
+"""\
+Print a list of definitions, seeds or mirrors. The output is a in two columns:
+item name and its file path.
+"""
+
+import os, sys, subprocess
+from optparse import OptionParser
+
+__version__ = "1.0.0"
+__minimum_durian_version__ = "1.0.0"
+__description__ = "print list of available definitions/seeds/mirrors"
+
+def find_from_path(paths, suffixes = ["", ".cfg"], names = [], \
+                   syntax_checker = None):
+    """\
+    Returns a dictionary of all available names on path. The
+    dictionary key is the name (filname without suffix) and the value
+    is its filename (full path). If @names is given, the result will
+    only include the given names.
+    """
+
+    def get_name(filename):
+        return os.path.splitext(os.path.split(filename)[1])[0]
+
+    result = {}
+
+    for name in names:
+        if os.path.isabs(name) and os.path.isfile(name) and \
+           (not syntax_checker or syntax_checker(name)):
+            result[get_name(name)] = name
+
+    if names and len(result) == len(names):
+        return result
+
+    for path in paths:
+        try:
+            for filename in os.listdir(path):
+                name = get_name(filename)
+                if name in result or \
+                   names and name not in names: continue
+
+                filepath = os.path.join(path, filename)
+                if filename.startswith(".") or filename.endswith("~") or \
+                   not os.path.isfile(filepath) or \
+                   os.path.splitext(filename)[1] not in suffixes:
+                    continue
+
+                if not syntax_checker or syntax_checker(filepath):
+                    result[name] = filepath
+        except Exception:
+            pass
+
+    return result
+
+def check_seed_syntax(seed_file):
+    global OPTIONS
+
+    if seed_file.endswith(".superseed"):
+        return superseed_check(seed_file)
+
+    retcode = 0
+
+    try:
+        kwargs = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE} \
+                 if OPTIONS.quiet else {}
+        retcode = subprocess.call(["debconf-set-selections", "-c", \
+                                   seed_file], **kwargs)
+    except Exception as e:
+        if not OPTIONS.quiet:
+            sys.stderr.write("Could not verify '{0}' syntax with " \
+                             "debconf-set-selections. {1}" \
+                             .format(seed_file, e))
+
+    return retcode == 0
+
+def superseed_check(seed_file):
+    return os.access(seed_file, os.X_OK)
+
+if __name__ == "__main__":
+    parser = OptionParser()
+
+    parser.add_option("-c", "--syntax-check", dest = "syntax_check", \
+                      action = "store_true", default = False, \
+                      help = "Enable seed file syntax checking")
+    parser.add_option("-q", "--quiet", dest = "quiet", \
+                      action = "store_true", default = False, \
+                      help = "Do not print errors")
+    parser.add_option("-s", "--superseeds", dest = "superseeds", \
+                      action = "store_true", default = False, \
+                      help = "print superseeds in seeds listing")
+    parser.add_option("-v", "--version", dest = "version", \
+                      action = "store_true", default = False, \
+                      help = "Print plugin version and exit")
+
+    parser.set_description(__doc__)
+    parser.set_usage("list [-v|--version] [-h|--help] [-c|--syntax-check]" \
+                     "[-q|--quiet] <definitions|seeds|superseeds|mirrors> " \
+                     "<args>")
+
+    OPTIONS, ARGS = parser.parse_args()
+
+    if OPTIONS.version:
+        sys.stdout.write("desctiption: {0}\n".format(__description__))
+        sys.stdout.write("version: {0}\n".format(__version__))
+        sys.stdout.write("minimum durian version: {0}\n" \
+                         .format(__minimum_durian_version__))
+        exit(0)
+
+    ARGS = ARGS or ["definitions"]
+
+    if ARGS[0] in ["def", "defs", "definition", "definitions"]:
+        defs = find_from_path(os.environ.get("DEFINITIONS_PATH", "") \
+                              .split(":"), \
+                              suffixes = ["", ".cfg", ".def"], \
+                              names = ARGS[1:])
+        if defs:
+            format_string = "{{0:<{0}}} {{1}}" \
+                            .format(max(len(i) for i in defs.keys()) + 1)
+            sys.stdout.write("\n".join(format_string.format(k, v) \
+                                       for k, v in defs.items()))
+            sys.stdout.write("\n")
+    elif ARGS[0] in ["seed", "seeds"]:
+        seeds = find_from_path(os.environ.get("SEEDS_PATH", "").split(":"), \
+                               suffixes = ["", ".cfg", ".seed", ".preseed"] + \
+                                           ([".superseed"] \
+                                            if OPTIONS.superseeds else []), \
+                               names = ARGS[1:], \
+                               syntax_checker = check_seed_syntax if \
+                               OPTIONS.syntax_check else None)
+        if seeds:
+            format_string = "{{0:<{0}}} {{1}}" \
+                            .format(max(len(i) for i in seeds.keys()) + 1)
+            sys.stdout.write("\n".join(format_string.format(k, v) \
+                                       for k, v in seeds.items()))
+            sys.stdout.write("\n")
+    elif ARGS[0] in ["superseed", "superseeds"]:
+        seeds = find_from_path(os.environ.get("SEEDS_PATH", "").split(":"), \
+                               suffixes = [".superseed"], \
+                               names = ARGS[1:], \
+                               syntax_checker = superseed_check)
+        if seeds:
+            format_string = "{{0:<{0}}} {{1}}" \
+                            .format(max(len(i) for i in seeds.keys()) + 1)
+            sys.stdout.write("\n".join(format_string.format(k, v) \
+                                       for k, v in seeds.items()))
+            sys.stdout.write("\n")
+    elif ARGS[0] in ["mirror", "mirrors"]:
+        mirrors = find_from_path(os.environ.get("MIRRORS_PATH", "") \
+                                 .split(":"), suffixes = ["", ".cfg", \
+                                 ".mirror", ".debmirror"])
+        if len(ARGS) == 1:
+            if mirrors:
+                format_string = "{{0:<{0}}} {{1}}" \
+                                .format(max(len(i) for i in mirrors.keys()) + 1)
+                sys.stdout.write("\n".join(format_string.format(k, v) \
+                                           for k, v in mirrors.items()))
+                sys.stdout.write("\n")
+        else:
+            sys.stderr.write("Invalid number of arguments for mirror.\n")
+            exit(1)
+    else:
+        sys.stdout.write("Invalid list name.\n")
+        exit(1)

@@ -1,0 +1,12 @@
+# User settings
+d-i passwd/make-user boolean true
+d-i passwd/user-fullname string Durian
+d-i passwd/username string durian
+
+#d-i passwd/user-password password insecure
+#d-i passwd/user-password-again password insecure
+d-i passwd/user-password-crypted password $6$fGh/C8Cg$w9x9xPx8uQtJJtAQfl41m98B55EdG2egyCqSZV7FF2he/UZ2KbvW4lX5knwAysgbpH5XiMLe2mT5oH4fv8Fol1
+
+d-i user-setup/allow-password-weak boolean true 
+d-i user-setup/encrypt-home boolean false 
+d-i passwd/user-default-groups string adm cdrom dip lpadmin sambashare plugdev debian-tor libvirtd admin sudo

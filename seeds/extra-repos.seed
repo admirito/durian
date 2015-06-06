@@ -1,0 +1,6 @@
+# APT setting
+# You can choose to install restricted and universe software, or to install
+# software from the backports repository.
+d-i apt-setup/restricted boolean true
+d-i apt-setup/universe boolean true
+d-i apt-setup/backports boolean true

@@ -1,0 +1,11 @@
+HOSTNAME durian
+SEEDS defaults utopic-kernel trusty-mirror extra-repos
+SEEDS USER
+
+USER Durian durian hash:$6$LGo63RlXC/SF$yyVb33q15I4.M/KEL6hwGKwiJbspwXSQ1BkbuT9mLiPKu84gz5lpjMhjJPeURs1qJ7k/YePpUT/jr7vtZ2as61
+
+VM os-variant ubuntutrusty
+VM vcpus 2
+VM memory 1G
+VM disk qcow2 10G /media/mohammad/razavi/vm
+VM network bridge=br0

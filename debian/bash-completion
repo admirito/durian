@@ -1,0 +1,112 @@
+#
+# Durian Debian Deployer bash-completion script
+# Originally Developed by Mohammad Razavi <mrazavi64 at gmail dot com>
+#
+
+_durian_commands()
+{
+    durian -l
+}
+
+_current_command()
+{
+    for param in ${COMP_WORDS[@]:1:COMP_CWORD-1}
+    do
+	[[ $param != -* ]] && echo $param && return 0
+    done
+}
+
+_current_sub_command()
+{
+    found=
+    for param in ${COMP_WORDS[@]:1:COMP_CWORD-1}
+    do
+	if [[ $found ]]; then
+	    [[ $param != -* ]] && echo $param && return 0
+	else
+	    [[ $param != -* ]] && found=1
+	fi
+    done
+}
+
+_get_options()
+{
+    local cmd
+    ([ -z "$1" ] && durian -h || durian help "$1" 2>/dev/null) |
+    awk 'matched { print } /^Options:$/ { matched = 1 }' | grep "^  " | grep -ow "\-[^,= ]*"
+}
+
+_list()
+{
+    # $1 = definitions seeds mirrors
+    durian list "$1" | awk '{print $1}'
+}
+
+_durian()
+{
+    local cur command
+
+    COMPREPLY=()
+    cur=${COMP_WORDS[COMP_CWORD]}
+
+    command=$(_current_command)
+    sub=$(_current_sub_command)
+
+    if [[ "$cur" == -* ]]; then
+	COMPREPLY=( $( compgen -W "$(_get_options $command)" -- $cur ) )
+
+    else
+	case $command in
+	    ""|help)
+		COMPREPLY=( $( compgen -W "$(_durian_commands)" -- $cur ) )
+		;;
+
+	    depends)
+		COMPREPLY=( $( compgen -W "$(apt-cache pkgnames $cur 2> /dev/null)" -- $cur ) )
+		;;
+
+	    deploy)
+		if [[ ! "$sub" ]]; then
+		    COMPREPLY=( $( compgen -W "$(_list definitions)" -- $cur ) )
+		fi
+		;;
+
+	    dump)
+		if [[ "$sub" ]]; then
+		    COMPREPLY=( $( compgen -W "$(_list $sub)" -- $cur ) )
+		else
+		    COMPREPLY=( $( compgen -W "definition seed mirror" -- $cur ) )
+		fi
+		;;
+
+	    libvirt)
+		if [[ "$sub" ]]; then
+		    COMPREPLY=( $( compgen -W "$(_list definitions)" -- $cur ) )
+		else
+		    COMPREPLY=( $( compgen -W "install" -- $cur ) )
+		fi
+		;;
+
+	    list)
+		if [[ "$sub" ]]; then
+		    COMPREPLY=( $( compgen -W "$(_list $sub)" -- $cur ) )
+		else
+		    COMPREPLY=( $( compgen -W "definitions seeds superseeds mirrors" -- $cur ) )
+		fi
+		;;
+
+	    merge)
+		COMPREPLY=( $( compgen -W "$(_list seeds)" -- $cur ) )
+		;;
+
+	    mkboot|mkmirror)
+		COMPREPLY=( $( compgen -d -- $cur ) )
+		;;
+		
+	esac
+    fi
+
+    return 0;
+}
+
+complete -F _durian durian #-o default

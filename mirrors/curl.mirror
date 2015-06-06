@@ -1,0 +1,5 @@
+curl
+debconf-2.0
+libcurl3
+libstdc++6
+perlapi-5.18.1

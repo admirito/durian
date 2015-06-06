@@ -1,0 +1,6 @@
+d-i--merge preseed/late_command string \
+in-target sh -c 'sed -i "/exit 0/i emacs --daemon || true" /etc/rc.local; \
+printf -- "#!/bin/bash\n\n[ -z \$1 ] && emacsclient -t -e '\''(switch-to-buffer \"durian\")'\'' || emacsclient -t \"\$@\"\n" > /usr/local/bin/e; \
+printf -- "#!/bin/sh\n\nemacs -nw --eval '\''(and (switch-to-buffer \"durian\") (setq viper-mode t) (setq viper-inhibit-startup-message t) (setq viper-expert-level 1) (viper-mode))'\'' \"\$@\"\n" > /usr/local/bin/vi; \
+chmod +x /usr/local/bin/e /usr/local/bin/vi; \
+for file in /home/*/.bashrc; do [ -f $file ] && printf "\n\nes() { e \"/sudo::\$@\"; }\neh() { eh \"/ssh:\$@\"; }\n\nalias vim=vi\nalias vim.tiny=vi\n" >> $file; done';

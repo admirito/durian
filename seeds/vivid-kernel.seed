@@ -1,0 +1,1 @@
+d-i base-installer/kernel/image string linux-generic-lts-vivid
