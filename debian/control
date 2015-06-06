@@ -2,13 +2,13 @@ Source: durian
 Section: utils
 Priority: optional
 Maintainer: Mohammad Razavi <mrazavi64@gmail.com>
-Build-Depends: debhelper (>= 9.0.0)
-Standards-Version: 3.9.4
+Build-Depends: debhelper (>= 9.0.0), bash-completion
+Standards-Version: 3.9.5
 Homepage: http://durian-deployer.ir
 
 Package: durian
 Architecture: all
-Depends: ${shlibs:Depends}, ${misc:Depends}, python (>= 2.7.1), python (< 2.8), python-apt, debmirror
+Depends: ${shlibs:Depends}, ${misc:Depends}, python (>= 2.7.1), python (<< 2.8), python-apt, debmirror
 Recommends: syslinux-common, python-libvirt, virtinst, sensible-utils, tftpd-hpa
 Suggests: debconf
 Description: debian and ubuntu atomatic and customized deployer
