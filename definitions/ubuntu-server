@@ -7,5 +7,5 @@ USER Durian durian hash:$6$LGo63RlXC/SF$yyVb33q15I4.M/KEL6hwGKwiJbspwXSQ1BkbuT9m
 VM os-variant ubuntutrusty
 VM vcpus 2
 VM memory 1G
-VM disk qcow2 10G /media/mohammad/razavi/vm
+VM disk qcow2 10G /var/lib/libvirt/images/
 VM network bridge=br0
