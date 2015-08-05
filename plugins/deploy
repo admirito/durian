@@ -22,8 +22,10 @@ __version__ = "1.0.0"
 __minimum_durian_version__ = "1.0.0"
 __description__ = "make a host ready for deployment"
 
-def create_vm(vm_type, definition_content, vm_uuid, vm_mac):
+def create_vm(vm_type, definition_content, vm_uuid, vm_mac, connection_uri):
     args = (vm_type,) + \
+           (("--connection-uri={0}".format(connection_uri),) \
+            if connection_uri else ()) + \
            (("--uuid={0}".format(vm_uuid),) if vm_uuid else ()) + \
            (("--mac={0}".format(vm_mac),) if vm_mac else ()) + \
            ("install", "-")
@@ -202,6 +204,12 @@ if __name__ == "__main__":
                       type = "string", default = "libvirt", \
                       help = "Set virtual machine type (e.g. libvirt) " \
                       "to TYPE", metavar = "TYPE")
+    parser.add_option("-c", "--vm-connection-uri", dest = "vm_connection_uri", \
+                      type = "string", default = "", \
+                      help = "Set virtual machine connection uri (e.g. " \
+                      "qemu+ssh://username@hostname/system) or host address " \
+                      "(e.g. username@hostname) to ADDRESS_OR_URI", \
+                      metavar = "ADDRESS_OR_URI")
     parser.add_option("--vm-uuid", dest = "vm_uuid", \
                       action = "store_true", default = False, \
                       help = "Used UUID to deploy virtual machines")
@@ -222,11 +230,12 @@ if __name__ == "__main__":
 
     parser.set_description(__doc__)
     parser.set_usage("deploy [-v|--version] [-h|--help] " \
-                     "[-r|--netboot-root=<dir>] [-i|--netboot-ip=<ip>]" \
+                     "[-r|--netboot-root=<dir>] [-i|--netboot-ip=<ip>] " \
                      "[--initrd=<file>] [--kernel=<file>] " \
-                     "[--options=<options>] [-H|--hostname=<name>]" \
-                     "[-d|--domain=<name>] [--vm-type=<type>]" \
-                     "[--vm-uuid|--vm-mac]" \
+                     "[--options=<options>] [-H|--hostname=<name>] " \
+                     "[-d|--domain=<name>] [--vm-type=<type>] " \
+                     "[-c|--vm-connection-uri=<address_or_uri>] " \
+                     "[--vm-uuid|--vm-mac] " \
                      "<definition> <uuid/mac/ip/vm> [<vm name>]")
 
     OPTIONS, ARGS = parser.parse_args()
@@ -344,7 +353,7 @@ if __name__ == "__main__":
     if ARGS[1] == "vm":
         sys.stderr.write("Deploying a new virtual machine...\n")
         create_vm(OPTIONS.vm_type, definition_content, vm_uuid = vm_uuid, \
-                  vm_mac = vm_mac)
+                  vm_mac = vm_mac, connection_uri = OPTIONS.vm_connection_uri)
         sys.stderr.write("Deployment has begun. Your machine will be ready " \
                          "in a couple of minutes.\n")
     else:

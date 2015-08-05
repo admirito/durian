@@ -1,3 +1,9 @@
+durian (1.0.1) trusty; urgency=medium
+
+  * Added remote deployment support
+
+ -- Mohammad Razavi <mrazavi64@gmail.com>  Wed, 05 Aug 2015 10:14:03 +0430
+
 durian (1.0.0) trusty; urgency=low
 
   * Initial Release.
