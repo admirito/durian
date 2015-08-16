@@ -157,7 +157,7 @@ def new_vm_name(conn, basename):
     return new_name
 
 def get_bytes(human_bytes):
-    m = re.match(r"(\d+)(B|K|G|T|P)?", human_bytes)
+    m = re.match(r"(\d+)(B|K|M|G|T|P)?", human_bytes)
     if not m:
         return 0
     size, unit = int(m.group(1)), m.group(2)
