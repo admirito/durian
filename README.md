@@ -9,7 +9,7 @@ Durian is inspired from [Fully Automatic Installation] [1] (FAI), although, it u
 Durian currently supports libvirt virtual machine deployment, so you can easly create and deploy a KVM virtual machine with a single command. Durian is higly extedible with simple plugins. So you can easily fulfill your own requirements.
 
 ### Version
-1.0.0
+1.0.1
 
 ### Installation
 
@@ -56,7 +56,9 @@ Finally, deploy a definiton by its name (e.g. for ubuntu-server.cfg in */usr/sha
 ```sh
 $ durian deploy ubuntu-server 00:11:22:33:44:55:66
 ```
-And boot the system with PXE network booting, or you can deploy right into a new created VM with:
+The default network boot location is 127.0.0.1. If you are not using local host virtual machines, you have to add the option *-i IP_ADDRESS* with your IP address to the *deploy* command.
+
+Then, boot the system with PXE network booting, or you can deploy right into a new created VM with:
 ```sh
 $ durian deploy -e ubuntu-server vm
 ```
